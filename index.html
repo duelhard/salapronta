@@ -30,10 +30,10 @@
     <div class="section">
       <label for="room">1) Selecione o tamanho da sala</label>
       <select id="room">
-        <option value="s1" data-price="80">Sala 1 - 20m² (com isolamento acústico) — R$ 80 / dia</option>
-        <option value="s2" data-price="80">Sala 2 - 20m² (com isolamento acústico) — R$ 80 / dia</option>
-        <option value="s3" data-price="100">Sala 3 - 60m² (sem isolamento acústico) — R$ 100 / dia</option>
-        <option value="s4" data-price="60">Sala 4 - 15m² (sem isolamento acústico) — R$ 60 / dia</option>
+        <option value="s1" data-price="80">Sala 1 - 16m² (com isolamento acústico) — R$ 80 / dia</option>
+        <option value="s2" data-price="80">Sala 2 - 16m² (com isolamento acústico) — R$ 80 / dia</option>
+        <option value="s3" data-price="100">Sala 3 - 33m² (sem isolamento acústico) — R$ 100 / dia</option>
+        <option value="s4" data-price="60">Sala 4 - 21m² (sem isolamento acústico) (com sacada) — R$ 60 / dia</option>
       </select>
     </div>
 
@@ -62,6 +62,12 @@
             <input type="number" id="poltrona_qty" class="qty" min="1" max="2" value="1">
             <div class="muted">R$ 25 / poltrona / dia</div>
           </div>
+        </div>
+
+        <div>
+          <input type="radio" id="cfg_escrivaninha" name="config" value="escrivaninha">
+          <label for="cfg_escrivaninha">Escrivaninha e 3 cadeiras</label>
+          <div class="muted">Gratuito</div>
         </div>
 
         <div>
@@ -134,22 +140,22 @@
 
       <div class="breakdown" id="breakdown"></div>
 
-      <button class="cta" id="reserveBtn">Reservar via WhatsApp</button>
+      <button class="cta" id="reserveBtn" type="button">Reservar via WhatsApp</button>
     </div>
   </div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
   // prices
   const PRICES = {
     rooms: { s1:80, s2:80, s3:100, s4:60 },
-    config: { chairPerUnit:4, maca:25, poltronaPerUnit:25, mesa:20 },
+    config: { chairPerUnit:4, maca:25, poltronaPerUnit:25, mesa:20, escrivaninha:0 },
     addons: { projector:50, tv:20, desktop:20, notebook:50 }
   };
   const ROOM_DISCOUNTS = {1:0,2:0.05,3:0.10,4:0.15,5:0.20};
-  const fmt = v => v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+  const fmt = v => Number.isFinite(v) ? v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' }) : 'R$ 0,00';
 
-  // get elements
+  // get elements (once DOM ready)
   const roomEl = document.getElementById('room');
   const periodEl = document.getElementById('period');
   const chairsQtyEl = document.getElementById('chairs_qty');
@@ -171,25 +177,23 @@
   const reserveBtn = document.getElementById('reserveBtn');
 
   function readRoomPrice() {
-    const opt = roomEl.selectedOptions && roomEl.selectedOptions[0];
+    const opt = roomEl && roomEl.selectedOptions && roomEl.selectedOptions[0];
     if(!opt) return 0;
+    // try dataset
     let raw = opt.dataset && opt.dataset.price ? String(opt.dataset.price).trim() : '';
     if(raw) {
       const p = parseFloat(raw.replace(',', '.'));
       if(Number.isFinite(p)) return p;
     }
-    const m = opt.textContent.match(/(?:R\$)?\s*([0-9\.\,]+)/);
+    // try extract from text
+    const m = (opt.textContent || '').match(/(?:R\$)?\s*([0-9\.\,]+)/);
     if(m && m[1]) {
       const cleaned = m[1].replace(/\./g,'').replace(',', '.');
       const p2 = parseFloat(cleaned);
       if(Number.isFinite(p2)) return p2;
     }
+    // fallback mapping
     return PRICES.rooms[opt.value] || 0;
-  }
-
-  function getSelectedConfig() {
-    const sel = document.querySelector('input[name="config"]:checked') || document.querySelector('input[name="config"]');
-    return sel ? sel.value : 'chairs';
   }
 
   function calculate() {
@@ -204,26 +208,30 @@
     let configTotalPerDay = 0;
     let configDesc = '';
     if(cfg === 'chairs') {
-      const qty = Math.max(1, Math.min(10, parseInt(chairsQtyEl.value||1)));
+      const qty = Math.max(1, Math.min(10, parseInt(chairsQtyEl && chairsQtyEl.value || 1)));
       configTotalPerDay = qty * PRICES.config.chairPerUnit;
       configDesc = `${qty} cadeira(s) universitária(s) — ${fmt(configTotalPerDay)}/dia`;
     } else if(cfg === 'maca') {
       configTotalPerDay = PRICES.config.maca;
       configDesc = `Maca (1) — ${fmt(configTotalPerDay)}/dia`;
     } else if(cfg === 'poltrona') {
-      const qty = Math.max(1, Math.min(2, parseInt(poltronaQtyEl.value||1)));
+      const qty = Math.max(1, Math.min(2, parseInt(poltronaQtyEl && poltronaQtyEl.value || 1)));
       configTotalPerDay = qty * PRICES.config.poltronaPerUnit;
       configDesc = `${qty} poltrona(s) — ${fmt(configTotalPerDay)}/dia`;
+    } else if(cfg === 'escrivaninha') {
+      configTotalPerDay = PRICES.config.escrivaninha || 0;
+      configDesc = `Escrivaninha e 3 cadeiras — Gratuito`;
     } else if(cfg === 'mesa') {
       configTotalPerDay = PRICES.config.mesa;
       configDesc = `Mesa de reunião + 6 cadeiras — ${fmt(configTotalPerDay)}/dia`;
     }
 
+    // adicionais
     let addonsTotalPerDay = 0;
     const addonsLines = [];
     function addAddon(checkbox, qtyEl, price, label) {
       if(checkbox && checkbox.checked) {
-        const q = Math.max(1, parseInt(qtyEl.value||1));
+        const q = Math.max(1, parseInt(qtyEl && qtyEl.value || 1));
         const v = q * price;
         addonsTotalPerDay += v;
         addonsLines.push(`${q} ${label} — ${fmt(v)}/dia`);
@@ -237,10 +245,11 @@
     const perDayTotal = roomPriceAfterDiscount + configTotalPerDay + addonsTotalPerDay;
     const grandTotal = perDayTotal * days;
 
-    totalPriceEl.textContent = fmt(grandTotal);
-    daysLabel.textContent = `${days} dia(s)`;
+    // UI update
+    if(totalPriceEl) totalPriceEl.textContent = fmt(grandTotal);
+    if(daysLabel) daysLabel.textContent = `${days} dia(s)`;
 
-    const roomLabel = roomEl.selectedOptions[0].textContent.split('—')[0].trim();
+    const roomLabel = (roomEl && roomEl.selectedOptions && roomEl.selectedOptions[0].textContent.split('—')[0].trim()) || '';
 
     let html = `<strong>Resumo</strong><br>`;
     html += `<div class="muted">${roomLabel}: ${fmt(baseRoomPrice)} / dia</div>`;
@@ -251,15 +260,16 @@
     html += `<div style="margin-top:8px"><strong>Subtotal por dia:</strong> ${fmt(perDayTotal)}</div>`;
     html += `<div><strong>Total (${days} dia(s)):</strong> ${fmt(grandTotal)}</div>`;
 
-    breakdown.innerHTML = html;
+    if(breakdown) breakdown.innerHTML = html;
 
     return { baseRoomPrice, roomPriceAfterDiscount, discount, configDesc, addonsLines, days, perDayTotal, grandTotal, roomLabel };
   }
 
-  // wire events
-  ['change','input'].forEach(evt => {
-    document.getElementById('simulator-standalone').addEventListener(evt, function(e){
-      // enable qty toggles
+  // attach events - delegation on container to be robust
+  const container = document.getElementById('simulator-standalone');
+  if(container) {
+    container.addEventListener('change', function (e) {
+      // toggle qty inputs when checkboxes/radios change
       if(e.target && e.target.matches('#addon_projector,#addon_tv,#addon_desktop,#addon_notebook')) {
         const q = document.getElementById(e.target.id + '_q');
         if(q) q.disabled = !e.target.checked;
@@ -268,37 +278,55 @@
         const chairs = document.getElementById('chairs_qty');
         const pol = document.getElementById('poltrona_qty');
         const sel = document.querySelector('input[name="config"]:checked');
-        if(chairs) chairs.disabled = !(sel && sel.value==='chairs');
-        if(pol) pol.disabled = !(sel && sel.value==='poltrona');
+        if(chairs) chairs.disabled = !(sel && sel.value === 'chairs');
+        if(pol) pol.disabled = !(sel && sel.value === 'poltrona');
       }
       calculate();
-    });
-  });
+    }, false);
 
-  // whatsapp
-  reserveBtn.addEventListener('click', function(){
-    const data = calculate();
-    const greeting = "Olá, estou vindo pelo salapronta.com. Gostaria de atendimento.\n\n";
-    const lines = [
-      `Sala: ${data.roomLabel}`,
-      data.discount>0 ? `Sala (após desconto ${Math.round(data.discount*100)}%): ${fmt(data.roomPriceAfterDiscount)} / dia` : `Sala: ${fmt(data.baseRoomPrice)} / dia`,
-      `Configuração: ${data.configDesc}`
-    ];
-    if(data.addonsLines && data.addonsLines.length) { lines.push('Adicionais:'); data.addonsLines.forEach(l=>lines.push('- '+l)); }
-    lines.push(`Período: ${data.days} dia(s)`);
-    lines.push(`Subtotal por dia: ${fmt(data.perDayTotal)}`);
-    lines.push(`Total estimado: ${fmt(data.grandTotal)}`);
-    lines.push('');
-    lines.push('Pode verificar a disponibilidade desta sala?');
-    const encoded = encodeURIComponent(greeting + lines.join('\n'));
-    const wa = `https://api.whatsapp.com/send/?phone=554137979973&text=${encoded}&type=phone_number&app_absent=0`;
-    const w = window.open(wa,'_blank');
-    setTimeout(()=>{ if(!w || w.closed || typeof w.closed==='undefined') window.location.href = wa; },600);
-  });
+    container.addEventListener('input', function () { calculate(); }, false);
+  }
+
+  // whatsapp button (with popup fallback)
+  const reserveBtnEl = document.getElementById('reserveBtn');
+  if(reserveBtnEl) {
+    reserveBtnEl.addEventListener('click', function () {
+      const data = calculate();
+      const greeting = "Olá, estou vindo pelo salapronta.com. Gostaria de atendimento.\n\n";
+      const lines = [
+        `Sala: ${data.roomLabel}`,
+        data.discount>0 ? `Sala (após desconto ${Math.round(data.discount*100)}%): ${fmt(data.roomPriceAfterDiscount)} / dia` : `Sala: ${fmt(data.baseRoomPrice)} / dia`,
+        `Configuração: ${data.configDesc}`
+      ];
+      if(data.addonsLines && data.addonsLines.length) {
+        lines.push('Adicionais:');
+        data.addonsLines.forEach(l => lines.push('- ' + l));
+      }
+      lines.push(`Período: ${data.days} dia(s)`);
+      lines.push(`Subtotal por dia: ${fmt(data.perDayTotal)}`);
+      lines.push(`Total estimado: ${fmt(data.grandTotal)}`);
+      lines.push('');
+      lines.push('Pode verificar a disponibilidade desta sala?');
+
+      const encoded = encodeURIComponent(greeting + lines.join('\n'));
+      const wa = `https://api.whatsapp.com/send/?phone=554137979973&text=${encoded}&type=phone_number&app_absent=0`;
+
+      const w = window.open(wa, '_blank');
+      setTimeout(() => {
+        if(!w || w.closed || typeof w.closed === 'undefined') window.location.href = wa;
+      }, 600);
+    });
+  }
 
   // initial calc
   calculate();
-})();
+
+  // MutationObserver: recalcula automatically if builder re-renders the block
+  if(window.MutationObserver) {
+    const mo = new MutationObserver(() => { try { calculate(); } catch(e) {} });
+    mo.observe(container || document.body, { childList:true, subtree:true, attributes:false });
+  }
+});
 </script>
 </body>
 </html>
