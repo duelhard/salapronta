@@ -3,20 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Simulador - SalaPronta</title>
+  <title>Simulador - SalaPronta (corrigido)</title>
   <style>
     :root { --accent:#0b6b73; --muted:#444; --bg:#fff; --card:#f7f7f7; --radius:10px; font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial; }
     .simulator { max-width:760px; margin:18px auto; padding:20px; background:var(--bg); border-radius:var(--radius); box-shadow:0 6px 18px rgba(0,0,0,0.06); color:var(--muted); }
     h2 { margin:0 0 14px 0; color:var(--accent) }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
 
-    /* --- LABELS DAS SEÇÕES (MAIOR DESTAQUE) --- */
     .section > label {
       display:block;
       font-weight:700;
       margin-bottom:8px;
-      font-size:18px;         /* aumentado para mais destaque */
-      color: #0b6b73;
+      font-size:18px;
+      color:#0b6b73;
     }
 
     select, input[type="number"] { width:100%; padding:10px; border-radius:8px; border:1px solid #ddd; box-sizing:border-box; font-size:14px; }
@@ -93,7 +92,6 @@
     <div class="section">
       <label>3) Adicionais (marque os que quiser)</label>
       <div class="add-ons">
-        <!-- REMOVIDOS os campos de quantidade — cada adicional vale 1 unidade quando marcado -->
         <div class="row">
           <input type="checkbox" id="addon_projector"><label for="addon_projector">Projetor — R$ 50 / dia</label>
         </div>
@@ -143,7 +141,6 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  // prices
   const PRICES = {
     rooms: { s1:80, s2:80, s3:100, s4:60 },
     config: { chairPerUnit:4, maca:25, poltronaPerUnit:25, mesa:20, escrivaninha:0 },
@@ -153,12 +150,12 @@ document.addEventListener('DOMContentLoaded', function () {
   const fmt = v => Number.isFinite(v) ? v.toLocaleString('pt-BR', { style:'currency', currency:'BRL' }) : 'R$ 0,00';
 
   // elements
+  const container = document.getElementById('simulator-standalone');
   const roomEl = document.getElementById('room');
   const periodEl = document.getElementById('period');
   const chairsQtyEl = document.getElementById('chairs_qty');
   const poltronaQtyEl = document.getElementById('poltrona_qty');
 
-  // addons are now checkboxes only (one unit each)
   const addonProjector = document.getElementById('addon_projector');
   const addonTV = document.getElementById('addon_tv');
   const addonDesktop = document.getElementById('addon_desktop');
@@ -167,7 +164,14 @@ document.addEventListener('DOMContentLoaded', function () {
   const totalPriceEl = document.getElementById('totalPrice');
   const daysLabel = document.getElementById('daysLabel');
   const breakdown = document.getElementById('breakdown');
-  const reserveBtn = document.getElementById('reserveBtn');
+  const reserveBtnEl = document.getElementById('reserveBtn');
+
+  // safety / debounce
+  let calcTimeout = null;
+  const DEBOUNCE_MS = 120;         // curto, evita execuções em cascata
+  let isUpdatingUI = false;        // flag para ignorar mutações geradas pelo próprio script
+  let observer = null;
+  let observerTriggeredCount = 0;  // limita chamadas do observer
 
   function readRoomPrice() {
     const opt = roomEl && roomEl.selectedOptions && roomEl.selectedOptions[0];
@@ -186,15 +190,16 @@ document.addEventListener('DOMContentLoaded', function () {
     return PRICES.rooms[opt.value] || 0;
   }
 
-  function calculate() {
+  // core calculate (sync) — returns computed data but DOES NOT update UI directly
+  function computeTotals() {
     const baseRoomPrice = readRoomPrice();
     const days = Math.max(1, parseInt(periodEl.value || 1));
     const discount = ROOM_DISCOUNTS[days] || 0;
     const roomPriceAfterDiscount = +(baseRoomPrice * (1 - discount));
 
-    // config
     const cfgSel = document.querySelector('input[name="config"]:checked') || document.querySelector('input[name="config"]');
     const cfg = cfgSel ? cfgSel.value : 'chairs';
+
     let configTotalPerDay = 0;
     let configDesc = '';
     if(cfg === 'chairs') {
@@ -216,7 +221,7 @@ document.addEventListener('DOMContentLoaded', function () {
       configDesc = `Mesa de reunião + 6 cadeiras — ${fmt(configTotalPerDay)}/dia`;
     }
 
-    // adicionais — sem quantidade (1 unidade por checkbox)
+    // addons: each checkbox => 1 unit if checked
     let addonsTotalPerDay = 0;
     const addonsLines = [];
     if(addonProjector && addonProjector.checked) {
@@ -239,49 +244,68 @@ document.addEventListener('DOMContentLoaded', function () {
     const perDayTotal = roomPriceAfterDiscount + configTotalPerDay + addonsTotalPerDay;
     const grandTotal = perDayTotal * days;
 
-    // UI update
-    if(totalPriceEl) totalPriceEl.textContent = fmt(grandTotal);
-    if(daysLabel) daysLabel.textContent = `${days} dia(s)`;
-
     const roomLabel = (roomEl && roomEl.selectedOptions && roomEl.selectedOptions[0].textContent.split('—')[0].trim()) || '';
 
-    let html = `<strong>Resumo</strong><br>`;
-    html += `<div class="muted">${roomLabel}: ${fmt(baseRoomPrice)} / dia</div>`;
-    if(discount>0) html += `<div class="muted">Desconto na sala: ${Math.round(discount*100)}% → Sala com desconto: ${fmt(roomPriceAfterDiscount)} / dia</div>`;
-    else html += `<div class="muted">Desconto na sala: 0% (nenhum)</div>`;
-    html += `<div class="muted">${configDesc}</div>`;
-    html += addonsLines.length ? `<div class="muted">Adicionais:</div><ul>${addonsLines.map(l=>`<li>${l}</li>`).join('')}</ul>` : `<div class="muted">Adicionais: (nenhum)</div>`;
-    html += `<div style="margin-top:8px"><strong>Subtotal por dia:</strong> ${fmt(perDayTotal)}</div>`;
-    html += `<div><strong>Total (${days} dia(s)):</strong> ${fmt(grandTotal)}</div>`;
-
-    if(breakdown) breakdown.innerHTML = html;
-
-    return { baseRoomPrice, roomPriceAfterDiscount, discount, configDesc, addonsLines, days, perDayTotal, grandTotal, roomLabel };
+    return {
+      baseRoomPrice, roomPriceAfterDiscount, discount, configDesc,
+      addonsLines, days, perDayTotal, grandTotal, roomLabel
+    };
   }
 
-  // attach events - delegation on container to be robust
-  const container = document.getElementById('simulator-standalone');
-  if(container) {
-    container.addEventListener('change', function (e) {
-      // toggle qty inputs when radios change for config
+  // UI update (debounced caller)
+  function scheduleCalculate() {
+    if (calcTimeout) clearTimeout(calcTimeout);
+    calcTimeout = setTimeout(() => {
+      // do the actual UI update
+      try {
+        isUpdatingUI = true;              // tell observer to ignore DOM changes we make
+        const data = computeTotals();
+
+        if(totalPriceEl) totalPriceEl.textContent = fmt(data.grandTotal);
+        if(daysLabel) daysLabel.textContent = `${data.days} dia(s)`;
+
+        let html = `<strong>Resumo</strong><br>`;
+        html += `<div class="muted">${data.roomLabel}: ${fmt(data.baseRoomPrice)} / dia</div>`;
+        if(data.discount > 0) html += `<div class="muted">Desconto na sala: ${Math.round(data.discount*100)}% → Sala com desconto: ${fmt(data.roomPriceAfterDiscount)} / dia</div>`;
+        else html += `<div class="muted">Desconto na sala: 0% (nenhum)</div>`;
+        html += `<div class="muted">${data.configDesc}</div>`;
+        html += data.addonsLines.length ? `<div class="muted">Adicionais:</div><ul>${data.addonsLines.map(l=>`<li>${l}</li>`).join('')}</ul>` : `<div class="muted">Adicionais: (nenhum)</div>`;
+        html += `<div style="margin-top:8px"><strong>Subtotal por dia:</strong> ${fmt(data.perDayTotal)}</div>`;
+        html += `<div><strong>Total (${data.days} dia(s)):</strong> ${fmt(data.grandTotal)}</div>`;
+
+        if(breakdown) breakdown.innerHTML = html;
+      } finally {
+        // small grace period: keep flag true until next tick to avoid observer re-triggering
+        setTimeout(() => { isUpdatingUI = false; }, 40);
+      }
+    }, DEBOUNCE_MS);
+  }
+
+  // Initial attach of event listeners via delegation (only once)
+  function attachListeners() {
+    if(!container) return;
+    // change/input delegation
+    container.addEventListener('change', function(e) {
       if(e.target && e.target.matches('input[name="config"]')) {
+        // toggle config qty inputs
         const chairs = document.getElementById('chairs_qty');
         const pol = document.getElementById('poltrona_qty');
         const sel = document.querySelector('input[name="config"]:checked');
         if(chairs) chairs.disabled = !(sel && sel.value === 'chairs');
         if(pol) pol.disabled = !(sel && sel.value === 'poltrona');
       }
-      calculate();
+      // no qty for addons now
+      scheduleCalculate();
     }, false);
 
-    container.addEventListener('input', function () { calculate(); }, false);
+    container.addEventListener('input', function () { scheduleCalculate(); }, false);
   }
 
-  // whatsapp button (with popup fallback)
-  const reserveBtnEl = document.getElementById('reserveBtn');
-  if(reserveBtnEl) {
+  // WhatsApp button with fallback
+  function attachWhatsApp() {
+    if(!reserveBtnEl) return;
     reserveBtnEl.addEventListener('click', function () {
-      const data = calculate();
+      const data = computeTotals();
       const greeting = "Olá, estou vindo pelo salapronta.com. Gostaria de atendimento.\n\n";
       const lines = [
         `Sala: ${data.roomLabel}`,
@@ -302,20 +326,38 @@ document.addEventListener('DOMContentLoaded', function () {
       const wa = `https://api.whatsapp.com/send/?phone=554137979973&text=${encoded}&type=phone_number&app_absent=0`;
 
       const w = window.open(wa, '_blank');
-      setTimeout(() => {
-        if(!w || w.closed || typeof w.closed === 'undefined') window.location.href = wa;
-      }, 600);
+      setTimeout(() => { if(!w || w.closed || typeof w.closed === 'undefined') window.location.href = wa; }, 600);
     });
   }
 
-  // initial calc
-  calculate();
+  // MutationObserver: only triggers scheduleCalculate, but we ignore mutations caused by our own updates
+  function startObserver() {
+    if (!window.MutationObserver || !container) return;
+    if (observer) observer.disconnect();
 
-  // MutationObserver: recalcula automaticamente se o builder re-renderizar o bloco
-  if(window.MutationObserver) {
-    const mo = new MutationObserver(() => { try { calculate(); } catch(e) {} });
-    mo.observe(container || document.body, { childList:true, subtree:true, attributes:false });
+    observerTriggeredCount = 0;
+    observer = new MutationObserver(function(mutations) {
+      if (isUpdatingUI) return; // ignore our own changes
+      observerTriggeredCount++;
+      // Safety: if observer triggered excessively, stop it to avoid loops
+      if (observerTriggeredCount > 40) {
+        try { observer.disconnect(); } catch(e) {}
+        console.warn('SalaPronta: observer desconectado por excesso de triggers');
+        return;
+      }
+      // schedule recalculation (debounced)
+      scheduleCalculate();
+    });
+
+    // observe childList + subtree but not attributes; updates to innerHTML will show as childList
+    observer.observe(container, { childList: true, subtree: true });
   }
+
+  // init
+  attachListeners();
+  attachWhatsApp();
+  startObserver();
+  scheduleCalculate(); // initial render
 });
 </script>
 </body>
